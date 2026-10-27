@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111418">
+<title>Read Aloud</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #6a737d;
+    --line: #dde1e6; --accent: #2f6df6; --accent-text: #fff; --hl: #fff2b3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --panel: #1a1f25; --text: #e8ebef; --muted: #8b95a1;
+      --line: #2a313a; --accent: #5b8cff; --accent-text: #0b1020; --hl: #4a4220;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; height: 100dvh;
+  }
+  header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 16px; padding-top: max(10px, env(safe-area-inset-top));
+  }
+  header h1 { font-size: 17px; margin: 0; flex: 1; }
+  .tabs { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 2px; }
+  .tabs button { border: 0; background: none; color: var(--muted); padding: 6px 14px; border-radius: 8px; font: inherit; font-size: 14px; }
+  .tabs button.on { background: var(--accent); color: var(--accent-text); }
+  main { flex: 1; min-height: 0; padding: 0 16px 12px; display: flex; flex-direction: column; gap: 8px; }
+  textarea, #reader {
+    flex: 1; min-height: 0; width: 100%; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 12px; padding: 14px; font: inherit; resize: none;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  #reader { overflow-y: auto; font-size: 18px; line-height: 1.7; }
+  #reader p { margin: 0 0 14px; }
+  #reader span { cursor: pointer; border-radius: 4px; padding: 1px 0; }
+  #reader span.cur { background: var(--hl); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row .meta { color: var(--muted); font-size: 13px; flex: 1; }
+  .chip { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 12px; font: inherit; font-size: 14px; }
+  footer {
+    background: var(--panel); border-top: 1px solid var(--line);
+    padding: 10px 16px; padding-bottom: max(12px, env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .transport { display: flex; justify-content: center; align-items: center; gap: 18px; }
+  .transport button {
+    border: 0; background: none; color: var(--text); width: 48px; height: 48px;
+    border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+  }
+  .transport button svg { width: 26px; height: 26px; fill: currentColor; }
+  .transport #play { background: var(--accent); color: var(--accent-text); width: 60px; height: 60px; }
+  .transport #play svg { width: 30px; height: 30px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; }
+  .settings { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; }
+  .settings label { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+  .settings .wide { grid-column: 1 / -1; }
+  select { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; font-size: 14px; }
+  #warn { display: none; background: #fde8e8; color: #7a1c1c; padding: 10px 16px; font-size: 14px; }
+</style>
+</head>
+<body>
+<div id="warn">This browser doesn't support text-to-speech. Try Chrome, Safari or Edge.</div>
+
+<header>
+  <h1>Read Aloud</h1>
+  <div class="tabs">
+    <button id="tabText" class="on">Text</button>
+    <button id="tabRead">Reader</button>
+  </div>
+</header>
+
+<main>
+  <textarea id="input" placeholder="Paste your text here — any length…" spellcheck="false"></textarea>
+  <div id="reader" hidden></div>
+  <div class="row" id="textRow">
+    <span class="meta" id="count">0 words</span>
+    <button class="chip" id="paste">Paste</button>
+    <button class="chip" id="clear">Clear</button>
+  </div>
+</main>
+
+<footer>
+  <input type="range" id="seek" min="0" max="0" value="0" aria-label="Position">
+  <div class="transport">
+    <button id="prev" aria-label="Previous sentence"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zM20 6v12L9.5 12z"/></svg></button>
+    <button id="play" aria-label="Play"></button>
+    <button id="next" aria-label="Next sentence"><svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM4 6l10.5 6L4 18z"/></svg></button>
+  </div>
+  <div class="settings">
+    <label class="wide">Voice <select id="voice"></select></label>
+    <label>Speed <span id="rateVal">1.0×</span><input type="range" id="rate" min="0.5" max="2.5" step="0.1" value="1"></label>
+    <label>Pitch <span id="pitchVal">1.0</span><input type="range" id="pitch" min="0.5" max="1.5" step="0.1" value="1"></label>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const synth = window.speechSynthesis;
+  if (!synth || !window.SpeechSynthesisUtterance) { $('#warn').style.display = 'block'; return; }
+
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  };
+
+  const MAX = 200; // chars per utterance — long utterances get cut off by Chrome/Android
+  const ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M7 4v16l13-8z"/></svg>';
+  const ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>';
+
+  const input = $('#input'), reader = $('#reader'), seek = $('#seek');
+  const voiceSel = $('#voice'), rateEl = $('#rate'), pitchEl = $('#pitch'), playBtn = $('#play');
+
+  let voices = [], chunks = [], spans = [], idx = 0, playing = false, dirty = true;
+  let token = 0, current = null, wake = null, rateTimer = 0;
+
+  /* ---------- text → chunks ---------- */
+  function splitLong(s) {
+    const out = [], push = x => { x = x.trim(); if (x) out.push(x); };
+    let buf = '';
+    for (const p of s.match(/[^,;:]+[,;:]?\s*/g) || [s]) {
+      if (p.length > MAX) {
+        push(buf); buf = '';
+        let w = '';
+        for (const word of p.split(/\s+/)) {
+          if ((w + ' ' + word).length > MAX) { push(w); w = word; } else w = w ? w + ' ' + word : word;
+        }
+        push(w);
+      } else if ((buf + p).length > MAX) { push(buf); buf = p; }
+      else buf += p;
+    }
+    push(buf);
+    return out;
+  }
+
+  function splitText(text) {
+    const paras = [];
+    for (const line of text.replace(/\r/g, '').split(/\n+/)) {
+      const t = line.trim();
+      if (!t) continue;
+      const out = [];
+      let buf = '';
+      for (let s of t.match(/[^.!?…。！？]+[.!?…。！？]*["'”’)\]]*\s*/g) || [t]) {
+        s = s.trim();
+        if (!s) continue;
+        if (s.length > MAX) { if (buf) { out.push(buf); buf = ''; } out.push(...splitLong(s)); continue; }
+        if (buf && (buf + ' ' + s).length > MAX) { out.push(buf); buf = s; }
+        else buf = buf ? buf + ' ' + s : s;
+      }
+      if (buf) out.push(buf);
+      paras.push(out);
+    }
+    return paras;
+  }
+
+  function build() {
+    const paras = splitText(input.value);
+    chunks = []; spans = []; reader.textContent = '';
+    for (const para of paras) {
+      const p = document.createElement('p');
+      for (const c of para) {
+        const span = document.createElement('span');
+        const i = chunks.length;
+        span.textContent = c + ' ';
+        span.onclick = () => jump(i, true);
+        p.appendChild(span);
+        chunks.push(c); spans.push(span);
+      }
+      reader.appendChild(p);
+    }
+    seek.max = Math.max(0, chunks.length - 1);
+    dirty = false;
+  }
+
+  /* ---------- playback ---------- */
+  function mark() {
+    reader.querySelector('.cur')?.classList.remove('cur');
+    const el = spans[idx];
+    if (el) { el.classList.add('cur'); if (!reader.hidden) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+    seek.value = idx;
+    store.set('pos', idx);
+  }
+
+  function speak() {
+    const my = ++token;
+    if (idx >= chunks.length) { stop(true); return; }
+    mark();
+    const u = new SpeechSynthesisUtterance(chunks[idx]);
+    const v = voices.find(v => v.voiceURI === voiceSel.value);
+    if (v) { u.voice = v; u.lang = v.lang; }
+    u.rate = +rateEl.value; u.pitch = +pitchEl.value;
+    u.onend = () => { if (my === token && playing) { idx++; speak(); } };
+    u.onerror = e => {
+      if (my !== token || e.error === 'canceled' || e.error === 'interrupted') return;
+      if (playing) { idx++; speak(); }
+    };
+    current = u; // keep a reference, otherwise Chrome may GC it and never fire onend
+    synth.speak(u);
+  }
+
+  async function lockScreen() {
+    try { wake = await navigator.wakeLock?.request('screen'); } catch {}
+  }
+
+  function setPlaying(on) {
+    playing = on;
+    playBtn.innerHTML = on ? ICON_PAUSE : ICON_PLAY;
+    playBtn.setAttribute('aria-label', on ? 'Pause' : 'Play');
+    if (on) lockScreen(); else { try { wake?.release(); } catch {} wake = null; }
+  }
+
+  function play() {
+    if (dirty || !chunks.length) {
+      build();
+      if (!chunks.length) return;
+      idx = Math.min(store.get('pos', 0), chunks.length - 1);
+    }
+    showTab('read');
+    setPlaying(true);
+    synth.cancel();
+    speak();
+  }
+
+  function pause() { setPlaying(false); token++; synth.cancel(); } // resume restarts the current sentence
+
+  function stop(finished) {
+    setPlaying(false); token++; synth.cancel();
+    if (finished) { idx = 0; store.set('pos', 0); mark(); }
+  }
+
+  function jump(i, autoplay) {
+    if (!chunks.length) return;
+    idx = Math.max(0, Math.min(chunks.length - 1, i));
+    mark();
+    if (playing || autoplay) { setPlaying(true); synth.cancel(); speak(); }
+  }
+
+  playBtn.onclick = () => playing ? pause() : play();
+  $('#prev').onclick = () => jump(idx - 1);
+  $('#next').onclick = () => jump(idx + 1);
+  seek.oninput = () => jump(+seek.value);
+
+  /* ---------- UI ---------- */
+  function showTab(which) {
+    const read = which === 'read';
+    reader.hidden = !read; input.hidden = read;
+    $('#textRow').hidden = read;
+    $('#tabRead').classList.toggle('on', read);
+    $('#tabText').classList.toggle('on', !read);
+    if (read) spans[idx]?.scrollIntoView({ block: 'center' });
+  }
+  $('#tabText').onclick = () => showTab('text');
+  $('#tabRead').onclick = () => { if (dirty) { build(); idx = 0; } showTab('read'); };
+
+  function updateCount() {
+    const w = (input.value.match(/\S+/g) || []).length;
+    $('#count').textContent = w.toLocaleString() + ' words';
+  }
+  input.addEventListener('input', () => {
+    dirty = true; stop(); store.set('text', input.value); store.set('pos', 0); updateCount();
+  });
+  $('#clear').onclick = () => { input.value = ''; input.dispatchEvent(new Event('input')); input.focus(); };
+  $('#paste').onclick = async () => {
+    try {
+      const t = await navigator.clipboard.readText();
+      if (t) { input.value = t; input.dispatchEvent(new Event('input')); }
+    } catch { input.focus(); alert('Clipboard access was blocked — long-press the box and choose Paste.'); }
+  };
+
+  function restartSoon() {
+    clearTimeout(rateTimer);
+    if (playing) rateTimer = setTimeout(() => { synth.cancel(); speak(); }, 300);
+  }
+  function syncLabels() {
+    $('#rateVal').textContent = (+rateEl.value).toFixed(1) + '×';
+    $('#pitchVal').textContent = (+pitchEl.value).toFixed(1);
+  }
+  rateEl.oninput = () => { store.set('rate', rateEl.value); syncLabels(); restartSoon(); };
+  pitchEl.oninput = () => { store.set('pitch', pitchEl.value); syncLabels(); restartSoon(); };
+  voiceSel.onchange = () => { store.set('voice', voiceSel.value); restartSoon(); };
+
+  /* ---------- voices ---------- */
+  function loadVoices() {
+    const list = synth.getVoices();
+    if (!list.length || list.length === voices.length) return;
+    const lang = (navigator.language || 'en').toLowerCase().split('-')[0];
+    voices = [...list].sort((a, b) => {
+      const am = a.lang.toLowerCase().startsWith(lang) ? 0 : 1, bm = b.lang.toLowerCase().startsWith(lang) ? 0 : 1;
+      return am - bm || a.lang.localeCompare(b.lang) || a.name.localeCompare(b.name);
+    });
+    const saved = store.get('voice', '');
+    voiceSel.textContent = '';
+    for (const v of voices) {
+      const o = document.createElement('option');
+      o.value = v.voiceURI; o.textContent = `${v.name} (${v.lang})`;
+      voiceSel.appendChild(o);
+    }
+    voiceSel.value = voices.some(v => v.voiceURI === saved) ? saved : (voices.find(v => v.default) || voices[0]).voiceURI;
+  }
+  loadVoices();
+  synth.addEventListener?.('voiceschanged', loadVoices);
+  setTimeout(loadVoices, 500); // some mobile browsers never fire voiceschanged
+
+  document.addEventListener('visibilitychange', () => { if (playing && document.visibilityState === 'visible') lockScreen(); });
+  window.addEventListener('pagehide', () => synth.cancel());
+
+  /* ---------- init ---------- */
+  input.value = store.get('text', '');
+  rateEl.value = store.get('rate', '1'); pitchEl.value = store.get('pitch', '1');
+  syncLabels(); updateCount();
+  playBtn.innerHTML = ICON_PLAY;
+  showTab('text');
+})();
+</script>
+</body>
+</html>
